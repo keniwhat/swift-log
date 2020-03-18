@@ -1,12 +1,5 @@
 .DS_Store
 /.build
+/build
 /Packages
-/*.xcodeproj
-.xcode
-DerivedData
-.swiftpm
-
-.SourceKitten/
-docs/
-
-.*.sw?
+xcuserdata/
