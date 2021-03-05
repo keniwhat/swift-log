@@ -27,6 +27,10 @@ extension LoggingTest {
         return [
             ("testAutoclosure", testAutoclosure),
             ("testMultiplex", testMultiplex),
+            ("testMultiplexLogHandlerWithVariousLogLevels", testMultiplexLogHandlerWithVariousLogLevels),
+            ("testMultiplexLogHandlerNeedNotMaterializeValuesMultipleTimes", testMultiplexLogHandlerNeedNotMaterializeValuesMultipleTimes),
+            ("testMultiplexLogHandlerMetadata_settingMetadataThroughToUnderlyingHandlers", testMultiplexLogHandlerMetadata_settingMetadataThroughToUnderlyingHandlers),
+            ("testMultiplexLogHandlerMetadata_readingHandlerMetadata", testMultiplexLogHandlerMetadata_readingHandlerMetadata),
             ("testDictionaryMetadata", testDictionaryMetadata),
             ("testListMetadata", testListMetadata),
             ("testStringConvertibleMetadata", testStringConvertibleMetadata),
@@ -35,6 +39,8 @@ extension LoggingTest {
             ("testCustomFactory", testCustomFactory),
             ("testAllLogLevelsExceptCriticalCanBeBlocked", testAllLogLevelsExceptCriticalCanBeBlocked),
             ("testAllLogLevelsWork", testAllLogLevelsWork),
+            ("testAllLogLevelByFunctionRefWithSource", testAllLogLevelByFunctionRefWithSource),
+            ("testAllLogLevelByFunctionRefWithoutSource", testAllLogLevelByFunctionRefWithoutSource),
             ("testLogMessageWithStringInterpolation", testLogMessageWithStringInterpolation),
             ("testLoggingAString", testLoggingAString),
             ("testMultiplexerIsValue", testMultiplexerIsValue),
@@ -44,6 +50,7 @@ extension LoggingTest {
             ("testStreamLogHandlerWritesToAStream", testStreamLogHandlerWritesToAStream),
             ("testStreamLogHandlerOutputFormat", testStreamLogHandlerOutputFormat),
             ("testStreamLogHandlerOutputFormatWithMetaData", testStreamLogHandlerOutputFormatWithMetaData),
+            ("testStreamLogHandlerOutputFormatWithOrderedMetadata", testStreamLogHandlerOutputFormatWithOrderedMetadata),
             ("testStdioOutputStreamFlush", testStdioOutputStreamFlush),
             ("testOverloadingError", testOverloadingError),
         ]

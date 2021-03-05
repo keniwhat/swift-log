@@ -15,13 +15,21 @@
 #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
 import Darwin
 #elseif os(Windows)
-import MSVCRT
-#else
+import CRT
+#elseif canImport(Glibc)
 import Glibc
+#elseif canImport(WASILibc)
+import WASILibc
+#else
+#error("Unsupported runtime")
 #endif
 
 /// A `Logger` is the central type in `SwiftLog`. Its central function is to emit log messages using one of the methods
 /// corresponding to a log level.
+///
+/// `Logger`s are value types with respect to the `logLevel` and the `metadata` (as well as the immutable `label`
+/// and the selected `LogHandler`). Therefore, `Logger`s are suitable to be passed around between libraries if you want
+/// to preserve metadata across libraries.
 ///
 /// The most basic usage of a `Logger` is
 ///
@@ -49,7 +57,39 @@ extension Logger {
     /// - parameters:
     ///    - level: The log level to log `message` at. For the available log levels, see `Logger.Level`.
     ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
-    ///    - metadata: One-off metadata to attach to this log message
+    ///    - metadata: One-off metadata to attach to this log message.
+    ///    - source: The source this log messages originates to. Currently, it defaults to the folder containing the
+    ///              file that is emitting the log message, which usually is the module.
+    ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#file`).
+    ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
+    ///                it defaults to `#function`).
+    ///    - line: The line this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#line`).
+    @inlinable
+    public func log(level: Logger.Level,
+                    _ message: @autoclosure () -> Logger.Message,
+                    metadata: @autoclosure () -> Logger.Metadata? = nil,
+                    source: @autoclosure () -> String? = nil,
+                    file: String = #file, function: String = #function, line: UInt = #line) {
+        if self.logLevel <= level {
+            self.handler.log(level: level,
+                             message: message(),
+                             metadata: metadata(),
+                             source: source() ?? Logger.currentModule(filePath: (file)),
+                             file: file, function: function, line: line)
+        }
+    }
+
+    /// Log a message passing the log level as a parameter.
+    ///
+    /// If the `logLevel` passed to this method is more severe than the `Logger`'s `logLevel`, it will be logged,
+    /// otherwise nothing will happen.
+    ///
+    /// - parameters:
+    ///    - level: The log level to log `message` at. For the available log levels, see `Logger.Level`.
+    ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
+    ///    - metadata: One-off metadata to attach to this log message.
     ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
     ///            defaults to `#file`).
     ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
@@ -61,12 +101,7 @@ extension Logger {
                     _ message: @autoclosure () -> Logger.Message,
                     metadata: @autoclosure () -> Logger.Metadata? = nil,
                     file: String = #file, function: String = #function, line: UInt = #line) {
-        if self.logLevel <= level {
-            self.handler.log(level: level,
-                             message: message(),
-                             metadata: metadata(),
-                             file: file, function: function, line: line)
-        }
+        self.log(level: level, message(), metadata: metadata(), source: nil, file: file, function: function, line: line)
     }
 
     /// Add, change, or remove a logging metadata item.
@@ -86,7 +121,7 @@ extension Logger {
     /// Get or set the log level configured for this `Logger`.
     ///
     /// - note: `Logger`s treat `logLevel` as a value. This means that a change in `logLevel` will only affect this
-    ///         very `Logger`. It it acceptable for logging backends to have some form of global log level override
+    ///         very `Logger`. It is acceptable for logging backends to have some form of global log level override
     ///         that affects multiple or even all loggers. This means a change in `logLevel` to one `Logger` might in
     ///         certain cases have no effect.
     @inlinable
@@ -109,6 +144,28 @@ extension Logger {
     /// - parameters:
     ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
     ///    - metadata: One-off metadata to attach to this log message
+    ///    - source: The source this log messages originates to. Currently, it defaults to the folder containing the
+    ///              file that is emitting the log message, which usually is the module.
+    ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#file`).
+    ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
+    ///                it defaults to `#function`).
+    ///    - line: The line this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#line`).
+    @inlinable
+    public func trace(_ message: @autoclosure () -> Logger.Message,
+                      metadata: @autoclosure () -> Logger.Metadata? = nil,
+                      source: @autoclosure () -> String? = nil,
+                      file: String = #file, function: String = #function, line: UInt = #line) {
+        self.log(level: .trace, message(), metadata: metadata(), source: source(), file: file, function: function, line: line)
+    }
+
+    /// If `.trace` is at least as severe as the `Logger`'s `logLevel`, it will be logged,
+    /// otherwise nothing will happen.
+    ///
+    /// - parameters:
+    ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
+    ///    - metadata: One-off metadata to attach to this log message
     ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
     ///            defaults to `#file`).
     ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
@@ -119,7 +176,7 @@ extension Logger {
     public func trace(_ message: @autoclosure () -> Logger.Message,
                       metadata: @autoclosure () -> Logger.Metadata? = nil,
                       file: String = #file, function: String = #function, line: UInt = #line) {
-        self.log(level: .trace, message(), metadata: metadata(), file: file, function: function, line: line)
+        self.trace(message(), metadata: metadata(), source: nil, file: file, function: function, line: line)
     }
 
     /// Log a message passing with the `Logger.Level.debug` log level.
@@ -129,7 +186,31 @@ extension Logger {
     ///
     /// - parameters:
     ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
-    ///    - metadata: One-off metadata to attach to this log message
+    ///    - metadata: One-off metadata to attach to this log message.
+    ///    - source: The source this log messages originates to. Currently, it defaults to the folder containing the
+    ///              file that is emitting the log message, which usually is the module.
+    ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#file`).
+    ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
+    ///                it defaults to `#function`).
+    ///    - line: The line this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#line`).
+    @inlinable
+    public func debug(_ message: @autoclosure () -> Logger.Message,
+                      metadata: @autoclosure () -> Logger.Metadata? = nil,
+                      source: @autoclosure () -> String? = nil,
+                      file: String = #file, function: String = #function, line: UInt = #line) {
+        self.log(level: .debug, message(), metadata: metadata(), source: source(), file: file, function: function, line: line)
+    }
+
+    /// Log a message passing with the `Logger.Level.debug` log level.
+    ///
+    /// If `.debug` is at least as severe as the `Logger`'s `logLevel`, it will be logged,
+    /// otherwise nothing will happen.
+    ///
+    /// - parameters:
+    ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
+    ///    - metadata: One-off metadata to attach to this log message.
     ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
     ///            defaults to `#file`).
     ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
@@ -140,7 +221,7 @@ extension Logger {
     public func debug(_ message: @autoclosure () -> Logger.Message,
                       metadata: @autoclosure () -> Logger.Metadata? = nil,
                       file: String = #file, function: String = #function, line: UInt = #line) {
-        self.log(level: .debug, message(), metadata: metadata(), file: file, function: function, line: line)
+        self.debug(message(), metadata: metadata(), source: nil, file: file, function: function, line: line)
     }
 
     /// Log a message passing with the `Logger.Level.info` log level.
@@ -150,7 +231,31 @@ extension Logger {
     ///
     /// - parameters:
     ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
-    ///    - metadata: One-off metadata to attach to this log message
+    ///    - metadata: One-off metadata to attach to this log message.
+    ///    - source: The source this log messages originates to. Currently, it defaults to the folder containing the
+    ///              file that is emitting the log message, which usually is the module.
+    ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#file`).
+    ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
+    ///                it defaults to `#function`).
+    ///    - line: The line this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#line`).
+    @inlinable
+    public func info(_ message: @autoclosure () -> Logger.Message,
+                     metadata: @autoclosure () -> Logger.Metadata? = nil,
+                     source: @autoclosure () -> String? = nil,
+                     file: String = #file, function: String = #function, line: UInt = #line) {
+        self.log(level: .info, message(), metadata: metadata(), source: source(), file: file, function: function, line: line)
+    }
+
+    /// Log a message passing with the `Logger.Level.info` log level.
+    ///
+    /// If `.info` is at least as severe as the `Logger`'s `logLevel`, it will be logged,
+    /// otherwise nothing will happen.
+    ///
+    /// - parameters:
+    ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
+    ///    - metadata: One-off metadata to attach to this log message.
     ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
     ///            defaults to `#file`).
     ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
@@ -161,7 +266,7 @@ extension Logger {
     public func info(_ message: @autoclosure () -> Logger.Message,
                      metadata: @autoclosure () -> Logger.Metadata? = nil,
                      file: String = #file, function: String = #function, line: UInt = #line) {
-        self.log(level: .info, message(), metadata: metadata(), file: file, function: function, line: line)
+        self.info(message(), metadata: metadata(), source: nil, file: file, function: function, line: line)
     }
 
     /// Log a message passing with the `Logger.Level.notice` log level.
@@ -171,7 +276,33 @@ extension Logger {
     ///
     /// - parameters:
     ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
-    ///    - metadata: One-off metadata to attach to this log message
+    ///    - metadata: One-off metadata to attach to this log message.
+    ///    - source: The source this log messages originates to. Currently, it defaults to the folder containing the
+    ///              file that is emitting the log message, which usually is the module.
+    ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#file`).
+    ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
+    ///                it defaults to `#function`).
+    ///    - line: The line this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#line`).
+    @inlinable
+    public func notice(_ message: @autoclosure () -> Logger.Message,
+                       metadata: @autoclosure () -> Logger.Metadata? = nil,
+                       source: @autoclosure () -> String? = nil,
+                       file: String = #file, function: String = #function, line: UInt = #line) {
+        self.log(level: .notice, message(), metadata: metadata(), source: source(), file: file, function: function, line: line)
+    }
+
+    /// Log a message passing with the `Logger.Level.notice` log level.
+    ///
+    /// If `.notice` is at least as severe as the `Logger`'s `logLevel`, it will be logged,
+    /// otherwise nothing will happen.
+    ///
+    /// - parameters:
+    ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
+    ///    - metadata: One-off metadata to attach to this log message.
+    ///    - source: The source this log messages originates to. Currently, it defaults to the folder containing the
+    ///              file that is emitting the log message, which usually is the module.
     ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
     ///            defaults to `#file`).
     ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
@@ -182,7 +313,7 @@ extension Logger {
     public func notice(_ message: @autoclosure () -> Logger.Message,
                        metadata: @autoclosure () -> Logger.Metadata? = nil,
                        file: String = #file, function: String = #function, line: UInt = #line) {
-        self.log(level: .notice, message(), metadata: metadata(), file: file, function: function, line: line)
+        self.notice(message(), metadata: metadata(), source: nil, file: file, function: function, line: line)
     }
 
     /// Log a message passing with the `Logger.Level.warning` log level.
@@ -192,7 +323,31 @@ extension Logger {
     ///
     /// - parameters:
     ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
-    ///    - metadata: One-off metadata to attach to this log message
+    ///    - metadata: One-off metadata to attach to this log message.
+    ///    - source: The source this log messages originates to. Currently, it defaults to the folder containing the
+    ///              file that is emitting the log message, which usually is the module.
+    ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#file`).
+    ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
+    ///                it defaults to `#function`).
+    ///    - line: The line this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#line`).
+    @inlinable
+    public func warning(_ message: @autoclosure () -> Logger.Message,
+                        metadata: @autoclosure () -> Logger.Metadata? = nil,
+                        source: @autoclosure () -> String? = nil,
+                        file: String = #file, function: String = #function, line: UInt = #line) {
+        self.log(level: .warning, message(), metadata: metadata(), source: source(), file: file, function: function, line: line)
+    }
+
+    /// Log a message passing with the `Logger.Level.warning` log level.
+    ///
+    /// If `.warning` is at least as severe as the `Logger`'s `logLevel`, it will be logged,
+    /// otherwise nothing will happen.
+    ///
+    /// - parameters:
+    ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
+    ///    - metadata: One-off metadata to attach to this log message.
     ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
     ///            defaults to `#file`).
     ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
@@ -203,7 +358,7 @@ extension Logger {
     public func warning(_ message: @autoclosure () -> Logger.Message,
                         metadata: @autoclosure () -> Logger.Metadata? = nil,
                         file: String = #file, function: String = #function, line: UInt = #line) {
-        self.log(level: .warning, message(), metadata: metadata(), file: file, function: function, line: line)
+        self.warning(message(), metadata: metadata(), source: nil, file: file, function: function, line: line)
     }
 
     /// Log a message passing with the `Logger.Level.error` log level.
@@ -213,7 +368,31 @@ extension Logger {
     ///
     /// - parameters:
     ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
-    ///    - metadata: One-off metadata to attach to this log message
+    ///    - metadata: One-off metadata to attach to this log message.
+    ///    - source: The source this log messages originates to. Currently, it defaults to the folder containing the
+    ///              file that is emitting the log message, which usually is the module.
+    ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#file`).
+    ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
+    ///                it defaults to `#function`).
+    ///    - line: The line this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#line`).
+    @inlinable
+    public func error(_ message: @autoclosure () -> Logger.Message,
+                      metadata: @autoclosure () -> Logger.Metadata? = nil,
+                      source: @autoclosure () -> String? = nil,
+                      file: String = #file, function: String = #function, line: UInt = #line) {
+        self.log(level: .error, message(), metadata: metadata(), source: source(), file: file, function: function, line: line)
+    }
+
+    /// Log a message passing with the `Logger.Level.error` log level.
+    ///
+    /// If `.error` is at least as severe as the `Logger`'s `logLevel`, it will be logged,
+    /// otherwise nothing will happen.
+    ///
+    /// - parameters:
+    ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
+    ///    - metadata: One-off metadata to attach to this log message.
     ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
     ///            defaults to `#file`).
     ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
@@ -224,7 +403,7 @@ extension Logger {
     public func error(_ message: @autoclosure () -> Logger.Message,
                       metadata: @autoclosure () -> Logger.Metadata? = nil,
                       file: String = #file, function: String = #function, line: UInt = #line) {
-        self.log(level: .error, message(), metadata: metadata(), file: file, function: function, line: line)
+        self.error(message(), metadata: metadata(), source: nil, file: file, function: function, line: line)
     }
 
     /// Log a message passing with the `Logger.Level.critical` log level.
@@ -233,7 +412,32 @@ extension Logger {
     ///
     /// - parameters:
     ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
-    ///    - metadata: One-off metadata to attach to this log message
+    ///    - metadata: One-off metadata to attach to this log message.
+    ///    - source: The source this log messages originates to. Currently, it defaults to the folder containing the
+    ///              file that is emitting the log message, which usually is the module.
+    ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#file`).
+    ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
+    ///                it defaults to `#function`).
+    ///    - line: The line this log message originates from (there's usually no need to pass it explicitly as it
+    ///            defaults to `#line`).
+    @inlinable
+    public func critical(_ message: @autoclosure () -> Logger.Message,
+                         metadata: @autoclosure () -> Logger.Metadata? = nil,
+                         source: @autoclosure () -> String? = nil,
+                         file: String = #file, function: String = #function, line: UInt = #line) {
+        self.log(level: .critical, message(), metadata: metadata(), source: source(), file: file, function: function, line: line)
+    }
+
+    /// Log a message passing with the `Logger.Level.critical` log level.
+    ///
+    /// `.critical` messages will always be logged.
+    ///
+    /// - parameters:
+    ///    - message: The message to be logged. `message` can be used with any string interpolation literal.
+    ///    - metadata: One-off metadata to attach to this log message.
+    ///    - source: The source this log messages originates to. Currently, it defaults to the folder containing the
+    ///              file that is emitting the log message, which usually is the module.
     ///    - file: The file this log message originates from (there's usually no need to pass it explicitly as it
     ///            defaults to `#file`).
     ///    - function: The function this log message originates from (there's usually no need to pass it explicitly as
@@ -244,7 +448,7 @@ extension Logger {
     public func critical(_ message: @autoclosure () -> Logger.Message,
                          metadata: @autoclosure () -> Logger.Metadata? = nil,
                          file: String = #file, function: String = #function, line: UInt = #line) {
-        self.log(level: .critical, message(), metadata: metadata(), file: file, function: function, line: line)
+        self.critical(message(), metadata: metadata(), source: nil, file: file, function: function, line: line)
     }
 }
 
@@ -252,29 +456,43 @@ extension Logger {
 /// configured. `LoggingSystem` is set up just once in a given program to set up the desired logging backend
 /// implementation.
 public enum LoggingSystem {
+    #if canImport(WASILibc)
+    // WASILibc is single threaded, provides no locks
+    #else
     fileprivate static let lock = ReadWriteLock()
+    #endif
     fileprivate static var factory: (String) -> LogHandler = StreamLogHandler.standardOutput
     fileprivate static var initialized = false
 
     /// `bootstrap` is a one-time configuration function which globally selects the desired logging backend
     /// implementation. `bootstrap` can be called at maximum once in any given program, calling it more than once will
-    /// lead to undefined behaviour, most likely a crash.
+    /// lead to undefined behavior, most likely a crash.
     ///
     /// - parameters:
     ///     - factory: A closure that given a `Logger` identifier, produces an instance of the `LogHandler`.
     public static func bootstrap(_ factory: @escaping (String) -> LogHandler) {
+        #if canImport(WASILibc)
+        precondition(!self.initialized, "logging system can only be initialized once per process.")
+        self.factory = factory
+        self.initialized = true
+        #else
         self.lock.withWriterLock {
             precondition(!self.initialized, "logging system can only be initialized once per process.")
             self.factory = factory
             self.initialized = true
         }
+        #endif
     }
 
     // for our testing we want to allow multiple bootstraping
     internal static func bootstrapInternal(_ factory: @escaping (String) -> LogHandler) {
+        #if canImport(WASILibc)
+        self.factory = factory
+        #else
         self.lock.withWriterLock {
             self.factory = factory
         }
+        #endif
     }
 }
 
@@ -291,7 +509,7 @@ extension Logger {
     /// Examples:
     ///  - prefer `logger.info("user logged in", metadata: ["user-id": "\(user.id)"])` over
     ///    `..., metadata: ["user-id": .string(user.id.description)])`
-    ///  - prefer `logger.info("user selected colours", metadata: ["colors": ["\(user.topColor)", "\(user.secondColor)"]])`
+    ///  - prefer `logger.info("user selected colors", metadata: ["colors": ["\(user.topColor)", "\(user.secondColor)"]])`
     ///    over `..., metadata: ["colors": .array([.string("\(user.topColor)"), .string("\(user.secondColor)")])`
     ///  - prefer `logger.info("nested info", metadata: ["nested": ["fave-numbers": ["\(1)", "\(2)", "\(3)"], "foo": "bar"]])`
     ///    over `..., metadata: ["nested": .dictionary(["fave-numbers": ...])])`
@@ -323,7 +541,8 @@ extension Logger {
     /// Log levels are ordered by their severity, with `.trace` being the least severe and
     /// `.critical` being the most severe.
     public enum Level: String, Codable, CaseIterable {
-        /// Appropriate for messages that contain information only when debugging a program.
+        /// Appropriate for messages that contain information normally of use only when
+        /// tracing the execution of a program.
         case trace
 
         /// Appropriate for messages that contain information normally of use only when
@@ -361,7 +580,11 @@ extension Logger {
     /// - parameters:
     ///     - label: An identifier for the creator of a `Logger`.
     public init(label: String) {
+        #if canImport(WASILibc)
+        self.init(label: label, LoggingSystem.factory(label))
+        #else
         self = LoggingSystem.lock.withReaderLock { Logger(label: label, LoggingSystem.factory(label)) }
+        #endif
     }
 
     /// Construct a `Logger` given a `label` identifying the creator of the `Logger` or a non-standard `LogHandler`.
@@ -440,10 +663,7 @@ extension Logger {
     ///
     ///     logger.info("Hello \(world)")
     ///
-    public struct Message: ExpressibleByStringLiteral,
-        Equatable,
-        CustomStringConvertible,
-        ExpressibleByStringInterpolation {
+    public struct Message: ExpressibleByStringLiteral, Equatable, CustomStringConvertible, ExpressibleByStringInterpolation {
         public typealias StringLiteralType = String
 
         private var value: String
@@ -460,11 +680,52 @@ extension Logger {
 
 /// A pseudo-`LogHandler` that can be used to send messages to multiple other `LogHandler`s.
 ///
-/// The first `LogHandler` passed to the initialisation function of `MultiplexLogHandler` control the `logLevel` as
-/// well as the `metadata` for this `LogHandler`. Any subsequent `LogHandler`s used to initialise a
-/// `MultiplexLogHandler` are merely to emit the log message to another place.
+/// ### Effective Logger.Level
+///
+/// When first initialized the multiplex log handlers' log level is automatically set to the minimum of all the
+/// passed in log handlers. This ensures that each of the handlers will be able to log at their appropriate level
+/// any log events they might be interested in.
+///
+/// Example:
+/// If log handler `A` is logging at `.debug` level, and log handler `B` is logging at `.info` level, the constructed
+/// `MultiplexLogHandler([A, B])`'s effective log level will be set to `.debug`, meaning that debug messages will be
+/// handled by this handler, while only logged by the underlying `A` log handler (since `B`'s log level is `.info`
+/// and thus it would not actually log that log message).
+///
+/// If the log level is _set_ on a `Logger` backed by an `MultiplexLogHandler` the log level will apply to *all*
+/// underlying log handlers, allowing a logger to still select at what level it wants to log regardless of if the underlying
+/// handler is a multiplex or a normal one. If for some reason one might want to not allow changing a log level of a specific
+/// handler passed into the multiplex log handler, this is possible by wrapping it in a handler which ignores any log level changes.
+///
+/// ### Effective Logger.Metadata
+///
+/// Since a `MultiplexLogHandler` is a combination of multiple log handlers, the handling of metadata can be non-obvious.
+/// For example, the underlying log handlers may have metadata of their own set before they are used to initialize the multiplex log handler.
+///
+/// The multiplex log handler acts purely as proxy and does not make any changes to underlying handler metadata other than
+/// proxying writes that users made on a `Logger` instance backed by this handler.
+///
+/// Setting metadata is always proxied through to _all_ underlying handlers, meaning that if a modification like
+/// `logger[metadataKey: "x"] = "y"` is made, all underlying log handlers that this multiplex handler was initiated with
+/// will observe this change.
+///
+/// Reading metadata from the multiplex log handler MAY need to pick one of conflicting values if the underlying log handlers
+/// were already initiated with some metadata before passing them into the multiplex handler. The multiplex handler uses
+/// the order in which the handlers were passed in during its initialization as a priority indicator - the first handler's
+/// values are more important than the next handlers values, etc.
+///
+/// Example:
+/// If the multiplex log handler was initiated with two handlers like this: `MultiplexLogHandler([handler1, handler2])`.
+/// The handlers each have some already set metadata: `handler1` has metadata values for keys `one` and `all`, and `handler2`
+/// has values for keys `two` and `all`.
+///
+/// A query through the multiplex log handler the key `one` naturally returns `handler1`'s value, and a query for `two`
+/// naturally returns `handler2`'s value. Querying for the key `all` will return `handler1`'s value, as that handler was indicated
+/// "more important" than the second handler. The same rule applies when querying for the `metadata` property of the
+/// multiplex log handler - it constructs `Metadata` uniquing values.
 public struct MultiplexLogHandler: LogHandler {
     private var handlers: [LogHandler]
+    private var effectiveLogLevel: Logger.Level
 
     /// Create a `MultiplexLogHandler`.
     ///
@@ -472,42 +733,56 @@ public struct MultiplexLogHandler: LogHandler {
     ///    - handlers: An array of `LogHandler`s, each of which will receive the log messages sent to this `Logger`.
     ///                The array must not be empty.
     public init(_ handlers: [LogHandler]) {
-        assert(!handlers.isEmpty)
+        assert(!handlers.isEmpty, "MultiplexLogHandler.handlers MUST NOT be empty")
         self.handlers = handlers
+        self.effectiveLogLevel = handlers.map { $0.logLevel }.min() ?? .trace
     }
 
     public var logLevel: Logger.Level {
         get {
-            return self.handlers[0].logLevel
+            return self.effectiveLogLevel
         }
         set {
-            self.mutatingForEachHandler {
-                $0.logLevel = newValue
-            }
+            self.mutatingForEachHandler { $0.logLevel = newValue }
+            self.effectiveLogLevel = newValue
         }
     }
 
     public func log(level: Logger.Level,
                     message: Logger.Message,
                     metadata: Logger.Metadata?,
-                    file: String, function: String, line: UInt) {
-        self.handlers.forEach { handler in
-            handler.log(level: level, message: message, metadata: metadata, file: file, function: function, line: line)
+                    source: String,
+                    file: String,
+                    function: String,
+                    line: UInt) {
+        for handler in self.handlers where handler.logLevel <= level {
+            handler.log(level: level, message: message, metadata: metadata, source: source, file: file, function: function, line: line)
         }
     }
 
     public var metadata: Logger.Metadata {
         get {
-            return self.handlers[0].metadata
+            var effectiveMetadata: Logger.Metadata = [:]
+            // as a rough estimate we assume that the underlying handlers have a similar metadata count,
+            // and we use the first one's current count to estimate how big of a dictionary we need to allocate:
+            effectiveMetadata.reserveCapacity(self.handlers.first!.metadata.count) // !-safe, we always have at least one handler
+            return self.handlers.reduce(into: effectiveMetadata) { effectiveMetadata, handler in
+                effectiveMetadata.merge(handler.metadata, uniquingKeysWith: { l, _ in l })
+            }
         }
         set {
             self.mutatingForEachHandler { $0.metadata = newValue }
         }
     }
 
-    public subscript(metadataKey metadataKey: String) -> Logger.Metadata.Value? {
+    public subscript(metadataKey metadataKey: Logger.Metadata.Key) -> Logger.Metadata.Value? {
         get {
-            return self.handlers[0].metadata[metadataKey]
+            for handler in self.handlers {
+                if let value = handler[metadataKey: metadataKey] {
+                    return value
+                }
+            }
+            return nil
         }
         set {
             self.mutatingForEachHandler { $0[metadataKey: metadataKey] = newValue }
@@ -525,19 +800,27 @@ public struct MultiplexLogHandler: LogHandler {
 /// ensures access to the underlying `FILE` is locked to prevent
 /// cross-thread interleaving of output.
 internal struct StdioOutputStream: TextOutputStream {
+    #if canImport(WASILibc)
+    internal let file: OpaquePointer
+    #else
     internal let file: UnsafeMutablePointer<FILE>
+    #endif
     internal let flushMode: FlushMode
 
     internal func write(_ string: String) {
         string.withCString { ptr in
             #if os(Windows)
             _lock_file(self.file)
+            #elseif canImport(WASILibc)
+            // no file locking on WASI
             #else
             flockfile(self.file)
             #endif
             defer {
                 #if os(Windows)
                 _unlock_file(self.file)
+                #elseif canImport(WASILibc)
+                // no file locking on WASI
                 #else
                 funlockfile(self.file)
                 #endif
@@ -570,11 +853,16 @@ internal struct StdioOutputStream: TextOutputStream {
 let systemStderr = Darwin.stderr
 let systemStdout = Darwin.stdout
 #elseif os(Windows)
-let systemStderr = MSVCRT.stderr
-let systemStdout = MSVCRT.stdout
-#else
+let systemStderr = CRT.stderr
+let systemStdout = CRT.stdout
+#elseif canImport(Glibc)
 let systemStderr = Glibc.stderr!
 let systemStdout = Glibc.stdout!
+#elseif canImport(WASILibc)
+let systemStderr = WASILibc.stderr!
+let systemStdout = WASILibc.stdout!
+#else
+#error("Unsupported runtime")
 #endif
 
 /// `StreamLogHandler` is a simple implementation of `LogHandler` for directing
@@ -620,7 +908,10 @@ public struct StreamLogHandler: LogHandler {
     public func log(level: Logger.Level,
                     message: Logger.Message,
                     metadata: Logger.Metadata?,
-                    file: String, function: String, line: UInt) {
+                    source: String,
+                    file: String,
+                    function: String,
+                    line: UInt) {
         let prettyMetadata = metadata?.isEmpty ?? true
             ? self.prettyMetadata
             : self.prettify(self.metadata.merging(metadata!, uniquingKeysWith: { _, new in new }))
@@ -630,7 +921,9 @@ public struct StreamLogHandler: LogHandler {
     }
 
     private func prettify(_ metadata: Logger.Metadata) -> String? {
-        return !metadata.isEmpty ? metadata.map { "\($0)=\($1)" }.joined(separator: " ") : nil
+        return !metadata.isEmpty
+            ? metadata.lazy.sorted(by: { $0.key < $1.key }).map { "\($0)=\($1)" }.joined(separator: " ")
+            : nil
     }
 
     private func timestamp() -> String {
@@ -643,6 +936,48 @@ public struct StreamLogHandler: LogHandler {
                 String(cString: $0.baseAddress!)
             }
         }
+    }
+}
+
+/// No operation LogHandler, used when no logging is required
+public struct SwiftLogNoOpLogHandler: LogHandler {
+    public init() {}
+
+    @inlinable public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, file: String, function: String, line: UInt) {}
+
+    @inlinable public subscript(metadataKey _: String) -> Logger.Metadata.Value? {
+        get {
+            return nil
+        }
+        set {}
+    }
+
+    @inlinable public var metadata: Logger.Metadata {
+        get {
+            return [:]
+        }
+        set {}
+    }
+
+    @inlinable public var logLevel: Logger.Level {
+        get {
+            return .critical
+        }
+        set {}
+    }
+}
+
+extension Logger {
+    @inlinable
+    internal static func currentModule(filePath: String = #file) -> String {
+        let utf8All = filePath.utf8
+        return filePath.utf8.lastIndex(of: UInt8(ascii: "/")).flatMap { lastSlash -> Substring? in
+            utf8All[..<lastSlash].lastIndex(of: UInt8(ascii: "/")).map { secondLastSlash -> Substring in
+                filePath[utf8All.index(after: secondLastSlash) ..< lastSlash]
+            }
+        }.map {
+            String($0)
+        } ?? "n/a"
     }
 }
 
